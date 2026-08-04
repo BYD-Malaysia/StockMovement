@@ -184,7 +184,6 @@
         <option value="trend">Linear trend</option>
       </select>
     </span>
-
   </div>
 
   <div class="table-shell">
@@ -192,8 +191,8 @@
   </div>
 
   <div class="breakdown-head">
-    <h2>Forecast breakdown</h2>
-    <p>By Model, Variant, Ext Colour, Int Colour — respects the filters above. Covers the current month plus the forecast window set above.</p>
+    <h2>Should we purchase more?</h2>
+    <p>By Model, Variant, Ext Colour, Int Colour — respects the filters above. Stock Now + Scheduled In (already-booked Production Dates) vs. Fcst Demand (statistical, from Registration trend) over the forecast window. Negative Net Position = order more.</p>
   </div>
   <div class="table-shell">
     <table id="breakdown"></table>
@@ -211,7 +210,7 @@ const CACHE_KEY = 'stockTrackerCache_v1';
 
 let RECORDS = [];
 let FILTERED = [];
-let breakdownSort = { key: 'production', dir: 'desc' };
+let breakdownSort = { key: 'net', dir: 'asc' };
 
 const els = {
   dealer: document.getElementById('f-dealer'),
@@ -474,7 +473,7 @@ function render(){
   renderSummary(series, actualMonths);
   renderTable(actualMonths, forecastMonths, series, {production:prodF, wholesale:wsF, registration:regF, rdc:rdcF, dealer:dealerF});
   renderFooter(actualMonths, forecastMonths);
-  renderBreakdown(actualMonths, forecastMonths, method);
+  renderBreakdown(actualMonths, forecastMonths, method, todayKey);
 }
 
 function renderSummary(series, months){
@@ -537,7 +536,24 @@ function renderFooter(months, forecastMonths){
 
 function groupKey(r){ return [r.model,r.variant,r.extColour,r.intColour].join('\u241F'); }
 
-function renderBreakdown(actualMonths, forecastMonths, method){
+// Physical stock as of right now: arrived at RDC (ETA) or invoiced to a
+// dealer (PI), but not yet registered. Uses the current month as the cutoff
+// so it reflects today, not last month.
+function currentStockFor(records, todayKey){
+  const rdc = countByOrBefore(records,'rdcDate', todayKey) - countByOrBefore(records,'wholesaleDate', todayKey);
+  const dealer = countByOrBefore(records,'wholesaleDate', todayKey) - countByOrBefore(records,'registrationDate', todayKey);
+  return Math.max(0, rdc) + Math.max(0, dealer);
+}
+
+// Units already logged with a Production Date inside the forecast window —
+// this is real, already-committed supply (a booking that exists in the
+// sheet), not a statistical guess.
+function scheduledIncomingFor(records, forecastMonths){
+  const set = new Set(forecastMonths);
+  return records.filter(r => set.has(monthKey(r.productionDate))).length;
+}
+
+function renderBreakdown(actualMonths, forecastMonths, method, todayKey){
   if (!FILTERED.length){
     els.breakdown.innerHTML = '';
     els.breakdown.parentElement.innerHTML = '<div class="empty-note">No units match the current filters.</div>';
@@ -555,15 +571,19 @@ function renderBreakdown(actualMonths, forecastMonths, method){
   const rows = [];
   groups.forEach(g => {
     const s = buildStageSeries(g.records, actualMonths);
-    const prodF = forecastFlow(s.production, forecastCount, method);
-    const wsF   = forecastFlow(s.wholesale, forecastCount, method);
-    const regF  = forecastFlow(s.registration, forecastCount, method);
+    const regF = forecastFlow(s.registration, forecastCount, method); // statistical demand forecast
+
+    const currentStock = currentStockFor(g.records, todayKey);
+    const scheduled = scheduledIncomingFor(g.records, forecastMonths);
+    const demand = regF.reduce((a,b)=>a+b,0);
+    const net = currentStock + scheduled - demand;
+
     rows.push({
       model:g.model, variant:g.variant, ext:g.ext, int:g.int,
-      onHand: g.records.length,
-      production: prodF.reduce((a,b)=>a+b,0),
-      wholesale: wsF.reduce((a,b)=>a+b,0),
-      registration: regF.reduce((a,b)=>a+b,0),
+      stock: currentStock,
+      scheduled,
+      demand,
+      net,
     });
   });
 
@@ -578,28 +598,34 @@ function renderBreakdown(actualMonths, forecastMonths, method){
   const cols = [
     {key:'model', label:'Model'}, {key:'variant', label:'Variant'},
     {key:'ext', label:'Ext Colour'}, {key:'int', label:'Int Colour'},
-    {key:'onHand', label:'Total Units'},
-    {key:'production', label:'Fcst Production'},
-    {key:'wholesale', label:'Fcst Wholesale'},
-    {key:'registration', label:'Fcst Registration'},
+    {key:'stock', label:'Stock Now'},
+    {key:'scheduled', label:'Scheduled In'},
+    {key:'demand', label:'Fcst Demand'},
+    {key:'net', label:'Net Position'},
   ];
-  const numericKeys = ['onHand','production','wholesale','registration'];
+  const numericKeys = ['stock','scheduled','demand','net'];
 
   let thead = '<thead><tr>';
   cols.forEach(c => {
     const active = c.key === breakdownSort.key;
     thead += '<th class="sortable'+(active?' sort-active':'')+'" data-key="'+c.key+'">'+c.label+(active?(dir===1?' \u2191':' \u2193'):'')+'</th>';
   });
-  thead += '</tr></thead>';
+  thead += '<th>Signal</th></tr></thead>';
 
   let tbody = '<tbody>';
   rows.forEach(r => {
     tbody += '<tr>';
     cols.forEach(c => {
       const isNum = numericKeys.includes(c.key);
-      const strong = c.key === breakdownSort.key && ['production','wholesale','registration'].includes(c.key);
-      tbody += '<td'+(isNum?'':' style="text-align:left;font-family:\'Inter\',sans-serif;"')+(strong?' class="num-strong"':'')+'>'+escHtml(String(r[c.key]))+'</td>';
+      const netCell = c.key === 'net';
+      const cls = netCell ? (r.net < 0 ? 'num-strong' : '') : '';
+      tbody += '<td'+(isNum?'':' style="text-align:left;font-family:\'Inter\',sans-serif;"')+(cls?' class="'+cls+'"':'')+'>'+escHtml(String(r[c.key]))+'</td>';
     });
+    const short = r.net < 0;
+    const signal = short
+      ? '<span style="color:var(--danger);font-weight:600;">Order '+Math.abs(r.net)+' more</span>'
+      : '<span style="color:var(--accent);">Sufficient</span>';
+    tbody += '<td style="text-align:left;font-family:\'Inter\',sans-serif;">'+signal+'</td>';
     tbody += '</tr>';
   });
   tbody += '</tbody>';
