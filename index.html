@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stock Movement Tracker — BYD / DENZA</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#11151b;
+    --panel:#1a212b;
+    --panel-2:#212a36;
+    --line:#2b3543;
+    --text:#e9edf2;
+    --muted:#8b96a5;
+    --accent:#2fd7c4;
+    --accent-dim:#1c8b7f;
+    --forecast:#f5a623;
+    --danger:#e2596b;
+    --radius:10px;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:
+      radial-gradient(1200px 600px at 90% -10%, rgba(47,215,196,0.07), transparent 60%),
+      var(--bg);
+    color:var(--text);
+    font-family:'Inter',system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1400px;margin:0 auto;padding:28px 24px 60px;}
+
+  /* ---------- Header ---------- */
+  header{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:22px;}
+  .title-block h1{
+    font-family:'Space Grotesk',sans-serif;
+    font-size:22px;font-weight:700;letter-spacing:-0.01em;margin:0 0 4px;
+  }
+  .title-block p{margin:0;color:var(--muted);font-size:13px;}
+  .status{
+    display:flex;align-items:center;gap:8px;
+    background:var(--panel);border:1px solid var(--line);
+    padding:8px 14px;border-radius:999px;font-size:12.5px;color:var(--muted);
+    font-family:'IBM Plex Mono',monospace;
+  }
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--danger);box-shadow:0 0 0 3px rgba(226,89,107,0.15);}
+  .dot.live{background:var(--accent);box-shadow:0 0 0 3px rgba(47,215,196,0.18);}
+  .status button{
+    background:none;border:1px solid var(--line);color:var(--text);
+    border-radius:6px;padding:4px 9px;font-size:11.5px;cursor:pointer;font-family:'Inter',sans-serif;
+  }
+  .status button:hover{border-color:var(--accent);color:var(--accent);}
+
+  /* ---------- Pipeline signature ---------- */
+  .pipeline{
+    display:flex;align-items:center;gap:0;
+    background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+    padding:14px 18px;margin-bottom:20px;overflow-x:auto;
+  }
+  .stage-chip{
+    font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--muted);
+    padding:6px 12px;border:1px solid var(--line);border-radius:6px;white-space:nowrap;
+    background:var(--panel-2);
+  }
+  .stage-chip.flow{color:var(--accent);border-color:var(--accent-dim);}
+  .arrow{color:var(--muted);padding:0 8px;font-size:14px;}
+
+  /* ---------- Filters ---------- */
+  .filters{
+    display:grid;grid-template-columns:repeat(5,1fr) auto;gap:10px;
+    background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+    padding:16px;margin-bottom:18px;align-items:end;
+  }
+  .field label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:6px;}
+  select{
+    width:100%;background:var(--panel-2);color:var(--text);border:1px solid var(--line);
+    border-radius:7px;padding:9px 10px;font-size:13.5px;font-family:'Inter',sans-serif;
+  }
+  select:focus{outline:2px solid var(--accent);outline-offset:1px;}
+  .reset-btn{
+    background:var(--panel-2);border:1px solid var(--line);color:var(--muted);
+    border-radius:7px;padding:9px 14px;font-size:13px;cursor:pointer;height:38px;white-space:nowrap;
+  }
+  .reset-btn:hover{color:var(--text);border-color:var(--accent);}
+
+  /* ---------- Summary cards ---------- */
+  .summary{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:18px;}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;}
+  .card .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);}
+  .card .val{font-family:'IBM Plex Mono',monospace;font-size:24px;font-weight:600;margin-top:4px;color:var(--accent);}
+  .card.dim .val{color:var(--text);}
+
+  /* ---------- Forecast controls ---------- */
+  .forecast-bar{
+    display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+    background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+    padding:12px 16px;margin-bottom:18px;font-size:13px;color:var(--muted);
+  }
+  .forecast-bar strong{color:var(--text);font-weight:600;}
+  .forecast-bar input[type=number]{
+    width:56px;background:var(--panel-2);border:1px solid var(--line);color:var(--text);
+    border-radius:6px;padding:5px 8px;font-family:'IBM Plex Mono',monospace;
+  }
+  .forecast-bar select{width:auto;padding:6px 9px;font-size:12.5px;}
+  .swatch{width:11px;height:11px;border-radius:3px;display:inline-block;margin-right:6px;vertical-align:-1px;}
+
+  /* ---------- Table ---------- */
+  .table-shell{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);overflow:auto;}
+  table{border-collapse:collapse;width:100%;min-width:820px;}
+  th,td{padding:10px 14px;text-align:right;font-family:'IBM Plex Mono',monospace;font-size:13px;white-space:nowrap;}
+  th:first-child,td:first-child{text-align:left;font-family:'Inter',sans-serif;font-weight:500;}
+  thead th{
+    position:sticky;top:0;background:var(--panel-2);color:var(--muted);
+    font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;
+    border-bottom:1px solid var(--line);z-index:2;
+  }
+  thead th:first-child{position:sticky;left:0;z-index:3;background:var(--panel-2);}
+  tbody th{position:sticky;left:0;background:var(--panel);z-index:1;border-right:1px solid var(--line);}
+  tbody tr{border-bottom:1px solid var(--line);}
+  tbody tr:last-child{border-bottom:none;}
+  td.forecast-cell, th.forecast-col{color:var(--forecast);background:rgba(245,166,35,0.06);}
+  .stage-name{display:flex;align-items:center;gap:8px;}
+  .stage-tag{
+    font-size:9.5px;font-family:'IBM Plex Mono',monospace;padding:2px 6px;border-radius:4px;
+    border:1px solid var(--line);color:var(--muted);
+  }
+  .stage-tag.flow{color:var(--accent);border-color:var(--accent-dim);}
+  .stage-tag.balance{color:var(--forecast);border-color:#6b5323;}
+
+  .empty-note{padding:40px 20px;text-align:center;color:var(--muted);font-size:13.5px;}
+  footer{margin-top:16px;color:var(--muted);font-size:12px;}
+
+  .breakdown-head{margin:26px 0 12px;}
+  .breakdown-head h2{
+    font-family:'Space Grotesk',sans-serif;font-size:16px;font-weight:600;margin:0 0 4px;color:var(--text);
+  }
+  .breakdown-head p{margin:0;color:var(--muted);font-size:12.5px;}
+  #breakdown th.sortable{cursor:pointer;user-select:none;}
+  #breakdown th.sortable:hover{color:var(--accent);}
+  #breakdown th.sort-active{color:var(--forecast);}
+  #breakdown td.num-strong{color:var(--forecast);font-weight:600;}
+
+  @media (max-width:900px){
+    .filters{grid-template-columns:1fr 1fr;}
+    .summary{grid-template-columns:1fr 1fr;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="title-block">
+      <h1>Stock Movement Tracker</h1>
+      <p>Production → Wholesale → Registration → RDC → Dealer</p>
+    </div>
+    <div class="status" id="statusPill">
+      <span class="dot" id="statusDot"></span>
+      <span id="statusText">Connecting…</span>
+      <button id="refreshBtn" type="button">Refresh</button>
+    </div>
+  </header>
+
+
+  <div class="filters">
+    <div class="field"><label>Dealer Name</label><select id="f-dealer"><option value="">All dealers</option></select></div>
+    <div class="field"><label>Model</label><select id="f-model"><option value="">All models</option></select></div>
+    <div class="field"><label>Variant</label><select id="f-variant"><option value="">All variants</option></select></div>
+    <div class="field"><label>Ext Colour</label><select id="f-ext"><option value="">All ext. colours</option></select></div>
+    <div class="field"><label>Int Colour</label><select id="f-int"><option value="">All int. colours</option></select></div>
+    <button class="reset-btn" id="resetBtn" type="button">Clear filters</button>
+  </div>
+
+  <div class="summary" id="summaryCards"></div>
+
+  <div class="forecast-bar">
+    <span><span class="swatch" style="background:var(--forecast)"></span><strong>Forecast</strong> next
+      <input type="number" id="fMonths" value="3" min="0" max="12"> months after the current one, using
+      <select id="fMethod">
+        <option value="avg3">3-month average</option>
+        <option value="avg6">6-month average</option>
+        <option value="trend">Linear trend</option>
+      </select>
+    </span>
+
+  </div>
+
+  <div class="table-shell">
+    <table id="matrix"></table>
+  </div>
+
+  <div class="breakdown-head">
+    <h2>Forecast breakdown</h2>
+    <p>By Model, Variant, Ext Colour, Int Colour — respects the filters above. Covers the current month plus the forecast window set above.</p>
+  </div>
+  <div class="table-shell">
+    <table id="breakdown"></table>
+  </div>
+
+  <footer id="footerNote">—</footer>
+</div>
+
+<script>
+/* ============================================================
+   CONFIG — paste your Apps Script Web App URL here
+   ============================================================ */
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbz2tVXjAFdHq_CCbf2D4nBHCVKl2MCn3aRegKPrcUzKbJhOVUixVZ_a5Rgl8SVThwazxQ/exec';
+const CACHE_KEY = 'stockTrackerCache_v1';
+
+let RECORDS = [];
+let FILTERED = [];
+let breakdownSort = { key: 'production', dir: 'desc' };
+
+const els = {
+  dealer: document.getElementById('f-dealer'),
+  model: document.getElementById('f-model'),
+  variant: document.getElementById('f-variant'),
+  ext: document.getElementById('f-ext'),
+  int: document.getElementById('f-int'),
+  statusDot: document.getElementById('statusDot'),
+  statusText: document.getElementById('statusText'),
+  refreshBtn: document.getElementById('refreshBtn'),
+  resetBtn: document.getElementById('resetBtn'),
+  summary: document.getElementById('summaryCards'),
+  table: document.getElementById('matrix'),
+  breakdown: document.getElementById('breakdown'),
+  footer: document.getElementById('footerNote'),
+  fMonths: document.getElementById('fMonths'),
+  fMethod: document.getElementById('fMethod'),
+};
+
+init();
+
+async function init(){
+  els.refreshBtn.addEventListener('click', () => loadData(true));
+  els.resetBtn.addEventListener('click', resetFilters);
+  [els.dealer, els.model, els.variant, els.ext, els.int].forEach(sel => {
+    sel.addEventListener('change', () => { rebuildFilterOptions(); render(); });
+  });
+  els.fMonths.addEventListener('change', render);
+  els.fMethod.addEventListener('change', render);
+  els.breakdown.addEventListener('click', (e) => {
+    const th = e.target.closest('th.sortable');
+    if (!th) return;
+    const key = th.dataset.key;
+    if (breakdownSort.key === key) breakdownSort.dir = breakdownSort.dir === 'desc' ? 'asc' : 'desc';
+    else breakdownSort = { key, dir: 'desc' };
+    render();
+  });
+
+  const cached = loadCache();
+  if (cached){ RECORDS = cached; buildFilterOptions(); render(); }
+  await loadData(false);
+}
+
+async function loadData(forceStatus){
+  setStatus('connecting');
+  if (APPS_SCRIPT_URL.indexOf('PASTE_YOUR') !== -1){
+    setStatus('offline', 'Set APPS_SCRIPT_URL in the script');
+    return;
+  }
+  try{
+    const res = await fetch(APPS_SCRIPT_URL + '?action=data', {cache:'no-store'});
+    const json = await res.json();
+    if (!json.ok) throw new Error(json.error || 'Unknown error');
+    RECORDS = json.records || [];
+    saveCache(RECORDS);
+    setStatus('live', 'Synced ' + new Date().toLocaleTimeString());
+    buildFilterOptions();
+    render();
+  }catch(err){
+    setStatus('offline', RECORDS.length ? 'Offline — showing cached data' : 'Could not load data');
+    console.error(err);
+  }
+}
+
+function setStatus(state, msg){
+  if (state === 'live'){ els.statusDot.classList.add('live'); els.statusText.textContent = msg || 'Live'; }
+  else if (state === 'connecting'){ els.statusDot.classList.remove('live'); els.statusText.textContent = 'Connecting…'; }
+  else { els.statusDot.classList.remove('live'); els.statusText.textContent = msg || 'Offline'; }
+}
+
+function saveCache(records){
+  try{ localStorage.setItem(CACHE_KEY, JSON.stringify({ts:Date.now(), records})); }catch(e){}
+}
+function loadCache(){
+  try{
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw).records;
+  }catch(e){ return null; }
+}
+
+/* ---------------- Filters ---------------- */
+
+function currentSelection(){
+  return {
+    dealer: els.dealer.value, model: els.model.value, variant: els.variant.value,
+    ext: els.ext.value, int: els.int.value
+  };
+}
+
+function matches(r, sel, skipKey){
+  if (sel.dealer && skipKey!=='dealer' && r.dealer !== sel.dealer) return false;
+  if (sel.model && skipKey!=='model' && r.model !== sel.model) return false;
+  if (sel.variant && skipKey!=='variant' && r.variant !== sel.variant) return false;
+  if (sel.ext && skipKey!=='ext' && r.extColour !== sel.ext) return false;
+  if (sel.int && skipKey!=='int' && r.intColour !== sel.int) return false;
+  return true;
+}
+
+function uniqueSorted(arr){ return Array.from(new Set(arr.filter(v=>v))).sort((a,b)=>a.localeCompare(b)); }
+
+function buildFilterOptions(){
+  rebuildFilterOptions();
+}
+
+// Cascading dropdowns: each select's option list only reflects records
+// consistent with the OTHER currently-selected filters (not itself).
+function rebuildFilterOptions(){
+  const sel = currentSelection();
+  fillSelect(els.dealer, 'dealer', uniqueSorted(RECORDS.filter(r=>matches(r,sel,'dealer')).map(r=>r.dealer)), sel.dealer, 'All dealers');
+  fillSelect(els.model, 'model', uniqueSorted(RECORDS.filter(r=>matches(r,sel,'model')).map(r=>r.model)), sel.model, 'All models');
+  fillSelect(els.variant, 'variant', uniqueSorted(RECORDS.filter(r=>matches(r,sel,'variant')).map(r=>r.variant)), sel.variant, 'All variants');
+  fillSelect(els.ext, 'ext', uniqueSorted(RECORDS.filter(r=>matches(r,sel,'ext')).map(r=>r.extColour)), sel.ext, 'All ext. colours');
+  fillSelect(els.int, 'int', uniqueSorted(RECORDS.filter(r=>matches(r,sel,'int')).map(r=>r.intColour)), sel.int, 'All int. colours');
+}
+
+function fillSelect(selectEl, key, values, currentVal, placeholder){
+  const prev = currentVal;
+  selectEl.innerHTML = '<option value="">' + placeholder + '</option>' +
+    values.map(v => '<option value="'+escAttr(v)+'">'+escHtml(v)+'</option>').join('');
+  if (prev && values.includes(prev)) selectEl.value = prev;
+}
+
+function resetFilters(){
+  [els.dealer, els.model, els.variant, els.ext, els.int].forEach(s => s.value='');
+  rebuildFilterOptions();
+  render();
+}
+
+/* ---------------- Aggregation ---------------- */
+
+function monthKey(dateStr){ return dateStr ? dateStr.slice(0,7) : null; } // 'YYYY-MM'
+function currentMonthKey(){
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+}
+function monthLabel(key){
+  const [y,m] = key.split('-').map(Number);
+  return new Date(y, m-1, 1).toLocaleDateString('en-GB', {month:'short', year:'numeric'});
+}
+function addMonths(key, n){
+  const [y,m] = key.split('-').map(Number);
+  const d = new Date(y, m-1+n, 1);
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+}
+
+function getMonthRange(records){
+  let min=null, max=null;
+  const fields = ['productionDate','rdcDate','wholesaleDate','registrationDate'];
+  records.forEach(r => fields.forEach(f => {
+    const k = monthKey(r[f]);
+    if (!k) return;
+    if (!min || k < min) min = k;
+    if (!max || k > max) max = k;
+  }));
+  if (!min) { const now = new Date(); min = max = now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0'); }
+  const months = [];
+  let cur = min;
+  while (cur <= max){ months.push(cur); cur = addMonths(cur,1); }
+  return months;
+}
+
+function countInMonth(records, field, monthK){
+  let c=0;
+  for (const r of records) if (monthKey(r[field]) === monthK) c++;
+  return c;
+}
+function countByOrBefore(records, field, monthK){
+  const end = addMonths(monthK,1); // exclusive upper bound
+  let c=0;
+  for (const r of records){
+    const k = monthKey(r[field]);
+    if (k && k < end) c++;
+  }
+  return c;
+}
+
+function buildStageSeries(records, months){
+  const production = months.map(m => countInMonth(records,'productionDate',m));
+  const wholesale   = months.map(m => countInMonth(records,'wholesaleDate',m));
+  const registration= months.map(m => countInMonth(records,'registrationDate',m));
+  // ETA = arrival at RDC. RDC stock on hand = arrived at RDC, not yet invoiced (PI / wholesale).
+  const rdcBalance  = months.map(m => countByOrBefore(records,'rdcDate',m) - countByOrBefore(records,'wholesaleDate',m));
+  const dealerBalance = months.map(m => countByOrBefore(records,'wholesaleDate',m) - countByOrBefore(records,'registrationDate',m));
+  return { production, wholesale, registration, rdcBalance, dealerBalance };
+}
+
+function forecastFlow(series, nMonths, method){
+  const out = [];
+  const hist = series.slice();
+  for (let i=0;i<nMonths;i++){
+    let val;
+    if (method === 'trend'){
+      val = linearTrendNext(hist);
+    } else {
+      const n = method === 'avg6' ? 6 : 3;
+      const tail = hist.slice(-n);
+      val = tail.reduce((a,b)=>a+b,0) / (tail.length||1);
+    }
+    val = Math.max(0, Math.round(val));
+    out.push(val);
+    hist.push(val);
+  }
+  return out;
+}
+
+function linearTrendNext(series){
+  const n = Math.min(series.length, 6);
+  const y = series.slice(-n);
+  if (y.length < 2) return y[y.length-1] || 0;
+  const x = y.map((_,i)=>i);
+  const xm = x.reduce((a,b)=>a+b,0)/x.length;
+  const ym = y.reduce((a,b)=>a+b,0)/y.length;
+  let num=0, den=0;
+  for (let i=0;i<x.length;i++){ num += (x[i]-xm)*(y[i]-ym); den += (x[i]-xm)**2; }
+  const slope = den ? num/den : 0;
+  const intercept = ym - slope*xm;
+  return slope*(x.length) + intercept;
+}
+
+/* ---------------- Render ---------------- */
+
+function render(){
+  const sel = currentSelection();
+  FILTERED = RECORDS.filter(r => matches(r, sel, null));
+
+  const rawMonths = getMonthRange(FILTERED.length ? FILTERED : RECORDS);
+  const todayKey = currentMonthKey();
+  // Actual = fully completed months only. The current month is always
+  // treated as forecast (even if it already has some data), since it's
+  // still in progress and not a finished month.
+  const actualMonths = rawMonths.filter(m => m < todayKey);
+
+  const extraMonths = Math.max(0, Math.min(12, parseInt(els.fMonths.value,10) || 0));
+  const method = els.fMethod.value;
+
+  const series = buildStageSeries(FILTERED, actualMonths);
+
+  // Forecast window = current month + the extra months chosen above.
+  const forecastMonths = [todayKey];
+  let cur = todayKey;
+  for (let i=0;i<extraMonths;i++){ cur = addMonths(cur,1); forecastMonths.push(cur); }
+  const forecastCount = forecastMonths.length;
+
+  const prodF = forecastFlow(series.production, forecastCount, method);
+  const wsF   = forecastFlow(series.wholesale, forecastCount, method);
+  const regF  = forecastFlow(series.registration, forecastCount, method);
+
+  // balances continue from last actual balance + forecast flow deltas
+  const rdcF = [], dealerF = [];
+  let lastRdc = series.rdcBalance[series.rdcBalance.length-1] || 0;
+  let lastDealer = series.dealerBalance[series.dealerBalance.length-1] || 0;
+  for (let i=0;i<forecastCount;i++){
+    lastRdc = Math.max(0, lastRdc + prodF[i] - wsF[i]);
+    lastDealer = Math.max(0, lastDealer + wsF[i] - regF[i]);
+    rdcF.push(lastRdc);
+    dealerF.push(lastDealer);
+  }
+
+  renderSummary(series, actualMonths);
+  renderTable(actualMonths, forecastMonths, series, {production:prodF, wholesale:wsF, registration:regF, rdc:rdcF, dealer:dealerF});
+  renderFooter(actualMonths, forecastMonths);
+  renderBreakdown(actualMonths, forecastMonths, method);
+}
+
+function renderSummary(series, months){
+  const lastIdx = months.length - 1;
+  const cards = [
+    {lbl:'Units tracked (filtered)', val: FILTERED.length, dim:true},
+    {lbl:'Production, last month', val: series.production[lastIdx] ?? 0},
+    {lbl:'RDC stock on hand', val: series.rdcBalance[lastIdx] ?? 0},
+    {lbl:'Dealer stock on hand', val: series.dealerBalance[lastIdx] ?? 0},
+    {lbl:'Registered, last month', val: series.registration[lastIdx] ?? 0},
+  ];
+  els.summary.innerHTML = cards.map(c =>
+    '<div class="card'+(c.dim?' dim':'')+'"><div class="lbl">'+c.lbl+'</div><div class="val">'+c.val+'</div></div>'
+  ).join('');
+}
+
+function renderTable(months, forecastMonths, series, fseries){
+  if (!months.length){
+    els.table.innerHTML = '';
+    els.table.parentElement.innerHTML = '<div class="empty-note">No data yet — connect the Apps Script backend or adjust filters.</div>';
+    return;
+  }
+  const allMonths = months.concat(forecastMonths);
+  const nAct = months.length;
+
+  let thead = '<thead><tr><th>Stage</th>';
+  allMonths.forEach((m,i) => {
+    thead += '<th class="'+(i>=nAct?'forecast-col':'')+'">' + monthLabel(m) + (i>=nAct?' *':'') + '</th>';
+  });
+  thead += '</tr></thead>';
+
+  const rows = [
+    {name:'Production', tag:'flow', actual:series.production, forecast:fseries.production},
+    {name:'Wholesale (PI)', tag:'flow', actual:series.wholesale, forecast:fseries.wholesale},
+    {name:'Registration', tag:'flow', actual:series.registration, forecast:fseries.registration},
+    {name:'RDC', tag:'balance', actual:series.rdcBalance, forecast:fseries.rdc},
+    {name:'Dealer', tag:'balance', actual:series.dealerBalance, forecast:fseries.dealer},
+  ];
+
+  let tbody = '<tbody>';
+  rows.forEach(row => {
+    tbody += '<tr><th><span class="stage-name">'+row.name+'<span class="stage-tag '+row.tag+'">'+(row.tag==='flow'?'flow/mo':'balance')+'</span></span></th>';
+    row.actual.forEach(v => { tbody += '<td>'+v+'</td>'; });
+    row.forecast.forEach(v => { tbody += '<td class="forecast-cell">'+v+'</td>'; });
+    tbody += '</tr>';
+  });
+  tbody += '</tbody>';
+
+  els.table.innerHTML = thead + tbody;
+}
+
+function renderFooter(months, forecastMonths){
+  const parts = [];
+  parts.push(FILTERED.length + ' unit(s) match current filters out of ' + RECORDS.length + ' total.');
+  if (forecastMonths.length) parts.push('* = forecast month, not actual data.');
+  els.footer.textContent = parts.join(' ');
+}
+
+/* ---------------- Forecast breakdown (by Model / Variant / Ext / Int) ---------------- */
+
+function groupKey(r){ return [r.model,r.variant,r.extColour,r.intColour].join('\u241F'); }
+
+function renderBreakdown(actualMonths, forecastMonths, method){
+  if (!FILTERED.length){
+    els.breakdown.innerHTML = '';
+    els.breakdown.parentElement.innerHTML = '<div class="empty-note">No units match the current filters.</div>';
+    return;
+  }
+
+  const groups = new Map();
+  FILTERED.forEach(r => {
+    const key = groupKey(r);
+    if (!groups.has(key)) groups.set(key, { model:r.model, variant:r.variant, ext:r.extColour, int:r.intColour, records:[] });
+    groups.get(key).records.push(r);
+  });
+
+  const forecastCount = forecastMonths.length;
+  const rows = [];
+  groups.forEach(g => {
+    const s = buildStageSeries(g.records, actualMonths);
+    const prodF = forecastFlow(s.production, forecastCount, method);
+    const wsF   = forecastFlow(s.wholesale, forecastCount, method);
+    const regF  = forecastFlow(s.registration, forecastCount, method);
+    rows.push({
+      model:g.model, variant:g.variant, ext:g.ext, int:g.int,
+      onHand: g.records.length,
+      production: prodF.reduce((a,b)=>a+b,0),
+      wholesale: wsF.reduce((a,b)=>a+b,0),
+      registration: regF.reduce((a,b)=>a+b,0),
+    });
+  });
+
+  const dir = breakdownSort.dir === 'asc' ? 1 : -1;
+  const key = breakdownSort.key;
+  rows.sort((a,b) => {
+    const av = a[key], bv = b[key];
+    if (typeof av === 'string') return av.localeCompare(bv) * dir;
+    return (av - bv) * dir;
+  });
+
+  const cols = [
+    {key:'model', label:'Model'}, {key:'variant', label:'Variant'},
+    {key:'ext', label:'Ext Colour'}, {key:'int', label:'Int Colour'},
+    {key:'onHand', label:'Total Units'},
+    {key:'production', label:'Fcst Production'},
+    {key:'wholesale', label:'Fcst Wholesale'},
+    {key:'registration', label:'Fcst Registration'},
+  ];
+  const numericKeys = ['onHand','production','wholesale','registration'];
+
+  let thead = '<thead><tr>';
+  cols.forEach(c => {
+    const active = c.key === breakdownSort.key;
+    thead += '<th class="sortable'+(active?' sort-active':'')+'" data-key="'+c.key+'">'+c.label+(active?(dir===1?' \u2191':' \u2193'):'')+'</th>';
+  });
+  thead += '</tr></thead>';
+
+  let tbody = '<tbody>';
+  rows.forEach(r => {
+    tbody += '<tr>';
+    cols.forEach(c => {
+      const isNum = numericKeys.includes(c.key);
+      const strong = c.key === breakdownSort.key && ['production','wholesale','registration'].includes(c.key);
+      tbody += '<td'+(isNum?'':' style="text-align:left;font-family:\'Inter\',sans-serif;"')+(strong?' class="num-strong"':'')+'>'+escHtml(String(r[c.key]))+'</td>';
+    });
+    tbody += '</tr>';
+  });
+  tbody += '</tbody>';
+
+  els.breakdown.innerHTML = thead + tbody;
+}
+
+function escHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function escAttr(s){ return escHtml(s); }
+</script>
+</body>
+</html>
