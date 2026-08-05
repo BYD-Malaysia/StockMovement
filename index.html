@@ -114,7 +114,7 @@
   thead th{
     position:sticky;top:0;background:var(--panel-2);color:var(--muted);
     font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;
-    border-bottom:1px solid var(--line);z-index:2;
+    border-bottom:1px solid var(--line);z-index:2;text-align:left;
   }
   thead th:first-child{position:sticky;left:0;z-index:3;background:var(--panel-2);}
   tbody th{position:sticky;left:0;background:var(--panel);z-index:1;border-right:1px solid var(--line);}
@@ -175,6 +175,11 @@
 
   <div class="summary" id="summaryCards"></div>
 
+  <div class="breakdown-head" style="margin-top:0;">
+    <h2>This month so far <span style="color:var(--muted);font-weight:400;font-size:12px;">— actual, in progress</span></h2>
+  </div>
+  <div class="summary" id="mtdCards"></div>
+
   <div class="forecast-bar">
     <span><span class="swatch" style="background:var(--forecast)"></span><strong>Forecast</strong> next
       <input type="number" id="fMonths" value="3" min="0" max="12"> months after the current one, using
@@ -192,7 +197,6 @@
 
   <div class="breakdown-head">
     <h2>Should we purchase more?</h2>
-    <p>By Model, Variant, Ext Colour, Int Colour — respects the filters above. Stock Now + Scheduled In (already-booked Production Dates) vs. Fcst Demand (statistical, from Registration trend) over the forecast window. Negative Net Position = order more.</p>
   </div>
   <div class="table-shell">
     <table id="breakdown"></table>
@@ -205,10 +209,11 @@
 /* ============================================================
    CONFIG — paste your Apps Script Web App URL here
    ============================================================ */
-const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbz2tVXjAFdHq_CCbf2D4nBHCVKl2MCn3aRegKPrcUzKbJhOVUixVZ_a5Rgl8SVThwazxQ/exec';
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzPIXHHjcu9nm0xrppzjRz5prgGARXecTKLGjJloYUbBIVf-roCNFvy2VtbxrP69R9TsA/exec';
 const CACHE_KEY = 'stockTrackerCache_v1';
 
 let RECORDS = [];
+let PO_RECORDS = [];
 let FILTERED = [];
 let breakdownSort = { key: 'net', dir: 'asc' };
 
@@ -223,6 +228,7 @@ const els = {
   refreshBtn: document.getElementById('refreshBtn'),
   resetBtn: document.getElementById('resetBtn'),
   summary: document.getElementById('summaryCards'),
+  mtd: document.getElementById('mtdCards'),
   table: document.getElementById('matrix'),
   breakdown: document.getElementById('breakdown'),
   footer: document.getElementById('footerNote'),
@@ -250,7 +256,7 @@ async function init(){
   });
 
   const cached = loadCache();
-  if (cached){ RECORDS = cached; buildFilterOptions(); render(); }
+  if (cached){ RECORDS = cached.records; PO_RECORDS = cached.poRecords || []; buildFilterOptions(); render(); }
   await loadData(false);
 }
 
@@ -265,7 +271,8 @@ async function loadData(forceStatus){
     const json = await res.json();
     if (!json.ok) throw new Error(json.error || 'Unknown error');
     RECORDS = json.records || [];
-    saveCache(RECORDS);
+    PO_RECORDS = json.poRecords || [];
+    saveCache(RECORDS, PO_RECORDS);
     setStatus('live', 'Synced ' + new Date().toLocaleTimeString());
     buildFilterOptions();
     render();
@@ -281,14 +288,14 @@ function setStatus(state, msg){
   else { els.statusDot.classList.remove('live'); els.statusText.textContent = msg || 'Offline'; }
 }
 
-function saveCache(records){
-  try{ localStorage.setItem(CACHE_KEY, JSON.stringify({ts:Date.now(), records})); }catch(e){}
+function saveCache(records, poRecords){
+  try{ localStorage.setItem(CACHE_KEY, JSON.stringify({ts:Date.now(), records, poRecords})); }catch(e){}
 }
 function loadCache(){
   try{
     const raw = localStorage.getItem(CACHE_KEY);
     if (!raw) return null;
-    return JSON.parse(raw).records;
+    return JSON.parse(raw);
   }catch(e){ return null; }
 }
 
@@ -459,6 +466,14 @@ function render(){
   const wsF   = forecastFlow(series.wholesale, forecastCount, method);
   const regF  = forecastFlow(series.registration, forecastCount, method);
 
+  // Fold in submitted PO quantities (matching the current Model/Variant/Ext/Int
+  // filters) as known, committed production on top of the statistical baseline.
+  // Safe to add directly — PO units don't have a VIN yet, so they were never
+  // counted by countInMonth('productionDate', ...) in the first place.
+  forecastMonths.forEach((m, i) => {
+    prodF[i] += poUnitsForSelection(PO_RECORDS, sel, m);
+  });
+
   // balances continue from last actual balance + forecast flow deltas
   const rdcF = [], dealerF = [];
   let lastRdc = series.rdcBalance[series.rdcBalance.length-1] || 0;
@@ -471,6 +486,7 @@ function render(){
   }
 
   renderSummary(series, actualMonths);
+  renderMTD(FILTERED, todayKey, sel);
   renderTable(actualMonths, forecastMonths, series, {production:prodF, wholesale:wsF, registration:regF, rdc:rdcF, dealer:dealerF});
   renderFooter(actualMonths, forecastMonths);
   renderBreakdown(actualMonths, forecastMonths, method, todayKey);
@@ -488,6 +504,31 @@ function renderSummary(series, months){
   els.summary.innerHTML = cards.map(c =>
     '<div class="card'+(c.dim?' dim':'')+'"><div class="lbl">'+c.lbl+'</div><div class="val">'+c.val+'</div></div>'
   ).join('');
+}
+
+function renderMTD(records, todayKey, sel){
+  const now = new Date();
+  const dayOfMonth = now.getDate();
+  const daysInMonth = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
+
+  const productionActual = countInMonth(records,'productionDate',todayKey);
+  const productionPO = poUnitsForSelection(PO_RECORDS, sel, todayKey);
+  const production = productionActual + productionPO;
+  const wholesale  = countInMonth(records,'wholesaleDate',todayKey);
+  const registration = countInMonth(records,'registrationDate',todayKey);
+
+  const prodSub =''	
+
+  els.mtd.innerHTML =
+    mtdCard('Production (' + monthLabel(todayKey) + ', so far)', production, false, prodSub) +
+    mtdCard('Wholesale / PI (' + monthLabel(todayKey) + ', so far)', wholesale) +
+    mtdCard('Registration (' + monthLabel(todayKey) + ', so far)', registration);
+}
+
+function mtdCard(lbl, val, dim, sub){
+  return '<div class="card'+(dim?' dim':'')+'"><div class="lbl">'+lbl+'</div><div class="val">'+val+'</div>' +
+    (sub ? '<div style="font-size:11px;color:var(--muted);margin-top:4px;">'+sub+'</div>' : '') +
+    '</div>';
 }
 
 function renderTable(months, forecastMonths, series, fseries){
@@ -528,7 +569,8 @@ function renderTable(months, forecastMonths, series, fseries){
 function renderFooter(months, forecastMonths){
   const parts = [];
   parts.push(FILTERED.length + ' unit(s) match current filters out of ' + RECORDS.length + ' total.');
-  if (forecastMonths.length) parts.push('* = forecast month, not actual data.');
+  parts.push('');
+  if (forecastMonths.length) parts.push('');
   els.footer.textContent = parts.join(' ');
 }
 
@@ -553,6 +595,36 @@ function scheduledIncomingFor(records, forecastMonths){
   return records.filter(r => set.has(monthKey(r.productionDate))).length;
 }
 
+// Sums submitted PO units for a given month, honoring the Model/Variant/Ext/Int
+// filters (PO rows have no dealer, so the Dealer filter doesn't apply here).
+function poUnitsForSelection(poRecords, sel, monthK){
+  let total = 0;
+  poRecords.forEach(p => {
+    if (sel.model && p.model !== sel.model) return;
+    if (sel.variant && p.variant !== sel.variant) return;
+    if (sel.ext && p.extColour !== sel.ext) return;
+    if (sel.int && p.intColour !== sel.int) return;
+    if (p.month === monthK) total += p.units;
+  });
+  return total;
+}
+
+// Submitted-to-HQ PO quantities for this combo, inside the forecast window.
+// PO rows are national totals (no dealer breakdown), so this figure doesn't
+// change with the Dealer filter — it's the same company-wide submitted qty
+// regardless of which dealer is selected.
+function poScheduledFor(poRecords, g, forecastMonths){
+  const set = new Set(forecastMonths);
+  let total = 0;
+  poRecords.forEach(p => {
+    if (p.model === g.model && p.variant === g.variant &&
+        p.extColour === g.ext && p.intColour === g.int && set.has(p.month)) {
+      total += p.units;
+    }
+  });
+  return total;
+}
+
 function renderBreakdown(actualMonths, forecastMonths, method, todayKey){
   if (!FILTERED.length){
     els.breakdown.innerHTML = '';
@@ -567,6 +639,19 @@ function renderBreakdown(actualMonths, forecastMonths, method, todayKey){
     groups.get(key).records.push(r);
   });
 
+  // A combo can exist purely on the PO tab — ordered but never produced yet,
+  // so it has zero VINs in FOR DASHBOARD. Without this, it would silently
+  // never appear as a row at all, hiding its Scheduled In quantity entirely.
+  const sel = currentSelection();
+  PO_RECORDS.forEach(p => {
+    if (sel.model && p.model !== sel.model) return;
+    if (sel.variant && p.variant !== sel.variant) return;
+    if (sel.ext && p.extColour !== sel.ext) return;
+    if (sel.int && p.intColour !== sel.int) return;
+    const key = [p.model,p.variant,p.extColour,p.intColour].join('\u241F');
+    if (!groups.has(key)) groups.set(key, { model:p.model, variant:p.variant, ext:p.extColour, int:p.intColour, records:[] });
+  });
+
   const forecastCount = forecastMonths.length;
   const rows = [];
   groups.forEach(g => {
@@ -574,7 +659,9 @@ function renderBreakdown(actualMonths, forecastMonths, method, todayKey){
     const regF = forecastFlow(s.registration, forecastCount, method); // statistical demand forecast
 
     const currentStock = currentStockFor(g.records, todayKey);
-    const scheduled = scheduledIncomingFor(g.records, forecastMonths);
+    const scheduledProd = scheduledIncomingFor(g.records, forecastMonths);
+    const scheduledPO = poScheduledFor(PO_RECORDS, g, forecastMonths);
+    const scheduled = scheduledProd + scheduledPO;
     const demand = regF.reduce((a,b)=>a+b,0);
     const net = currentStock + scheduled - demand;
 
