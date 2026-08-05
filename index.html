@@ -496,10 +496,10 @@ function renderSummary(series, months){
   const lastIdx = months.length - 1;
   const cards = [
     {lbl:'Units tracked (filtered)', val: FILTERED.length, dim:true},
-    {lbl:'Production, last month', val: series.production[lastIdx] ?? 0},
+    {lbl:'Wholesale, last month', val: series.wholesale[lastIdx] ?? 0},
+    {lbl:'Registered, last month', val: series.registration[lastIdx] ?? 0},
     {lbl:'RDC stock on hand', val: series.rdcBalance[lastIdx] ?? 0},
     {lbl:'Dealer stock on hand', val: series.dealerBalance[lastIdx] ?? 0},
-    {lbl:'Registered, last month', val: series.registration[lastIdx] ?? 0},
   ];
   els.summary.innerHTML = cards.map(c =>
     '<div class="card'+(c.dim?' dim':'')+'"><div class="lbl">'+c.lbl+'</div><div class="val">'+c.val+'</div></div>'
@@ -516,13 +516,16 @@ function renderMTD(records, todayKey, sel){
   const production = productionActual + productionPO;
   const wholesale  = countInMonth(records,'wholesaleDate',todayKey);
   const registration = countInMonth(records,'registrationDate',todayKey);
+  const stock = currentStockSplitFor(records, todayKey);
 
   const prodSub =''	
 
   els.mtd.innerHTML =
-    mtdCard('Production (' + monthLabel(todayKey) + ', so far)', production, false, prodSub) +
-    mtdCard('Wholesale / PI (' + monthLabel(todayKey) + ', so far)', wholesale) +
-    mtdCard('Registration (' + monthLabel(todayKey) + ', so far)', registration);
+    mtdCard('Production', production, false, prodSub) +
+    mtdCard('Wholesale', wholesale) +
+    mtdCard('Registered', registration) +
+    mtdCard('RDC Stock On Hand', stock.rdc) +
+    mtdCard('Dealer Stock On Hand', stock.dealer);
 }
 
 function mtdCard(lbl, val, dim, sub){
@@ -581,10 +584,14 @@ function groupKey(r){ return [r.model,r.variant,r.extColour,r.intColour].join('\
 // Physical stock as of right now: arrived at RDC (ETA) or invoiced to a
 // dealer (PI), but not yet registered. Uses the current month as the cutoff
 // so it reflects today, not last month.
-function currentStockFor(records, todayKey){
+function currentStockSplitFor(records, todayKey){
   const rdc = countByOrBefore(records,'rdcDate', todayKey) - countByOrBefore(records,'wholesaleDate', todayKey);
   const dealer = countByOrBefore(records,'wholesaleDate', todayKey) - countByOrBefore(records,'registrationDate', todayKey);
-  return Math.max(0, rdc) + Math.max(0, dealer);
+  return { rdc: Math.max(0, rdc), dealer: Math.max(0, dealer) };
+}
+function currentStockFor(records, todayKey){
+  const s = currentStockSplitFor(records, todayKey);
+  return s.rdc + s.dealer;
 }
 
 // Units already logged with a Production Date inside the forecast window —
