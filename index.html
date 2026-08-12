@@ -188,6 +188,7 @@
         <option value="avg6">6-month average</option>
         <option value="trend">Linear trend</option>
       </select>
+      for Wholesale &amp; Registration.
     </span>
   </div>
 
@@ -385,6 +386,12 @@ function countInMonth(records, field, monthK){
   for (const r of records) if (monthKey(r[field]) === monthK) c++;
   return c;
 }
+function countInMonthsSum(records, field, months){
+  const set = new Set(months);
+  let c=0;
+  for (const r of records) if (set.has(monthKey(r[field]))) c++;
+  return c;
+}
 function countByOrBefore(records, field, monthK){
   const end = addMonths(monthK,1); // exclusive upper bound
   let c=0;
@@ -462,17 +469,15 @@ function render(){
   for (let i=0;i<extraMonths;i++){ cur = addMonths(cur,1); forecastMonths.push(cur); }
   const forecastCount = forecastMonths.length;
 
-  const prodF = forecastFlow(series.production, forecastCount, method);
+  // Production is not statistically forecasted — it's built entirely from
+  // real, already-committed data: VINs with a booked Production Date that
+  // falls in this month, plus submitted PO qty for that month (PO units
+  // don't have a VIN yet, so they can't be double-counted here).
+  const prodF = forecastMonths.map(m =>
+    countInMonth(FILTERED, 'productionDate', m) + poUnitsForSelection(PO_RECORDS, sel, m)
+  );
   const wsF   = forecastFlow(series.wholesale, forecastCount, method);
   const regF  = forecastFlow(series.registration, forecastCount, method);
-
-  // Fold in submitted PO quantities (matching the current Model/Variant/Ext/Int
-  // filters) as known, committed production on top of the statistical baseline.
-  // Safe to add directly — PO units don't have a VIN yet, so they were never
-  // counted by countInMonth('productionDate', ...) in the first place.
-  forecastMonths.forEach((m, i) => {
-    prodF[i] += poUnitsForSelection(PO_RECORDS, sel, m);
-  });
 
   // balances continue from last actual balance + forecast flow deltas
   const rdcF = [], dealerF = [];
@@ -521,9 +526,9 @@ function renderMTD(records, todayKey, sel){
   const prodSub =''	
 
   els.mtd.innerHTML =
-    mtdCard('Production', production, false, prodSub) +
-    mtdCard('Wholesale', wholesale) +
-    mtdCard('Registered', registration) +
+    mtdCard('Production (' + monthLabel(todayKey) + ', so far)', production, false, prodSub) +
+    mtdCard('Wholesale / PI (' + monthLabel(todayKey) + ', so far)', wholesale) +
+    mtdCard('Registration (' + monthLabel(todayKey) + ', so far)', registration) +
     mtdCard('RDC Stock On Hand', stock.rdc) +
     mtdCard('Dealer Stock On Hand', stock.dealer);
 }
@@ -659,17 +664,68 @@ function renderBreakdown(actualMonths, forecastMonths, method, todayKey){
     if (!groups.has(key)) groups.set(key, { model:p.model, variant:p.variant, ext:p.extColour, int:p.intColour, records:[] });
   });
 
-  const forecastCount = forecastMonths.length;
-  const rows = [];
-  groups.forEach(g => {
-    const s = buildStageSeries(g.records, actualMonths);
-    const regF = forecastFlow(s.registration, forecastCount, method); // statistical demand forecast
+  // ---- Demand forecast: at Model+Variant level, split across colours ----
+  // Forecasting each colour combo's registrations independently is noisy —
+  // many combos only have a handful of historical units. Instead, forecast
+  // the fuller Model+Variant series (much more stable), then allocate that
+  // total across combos using each combo's historical share of registrations.
+  const parentGroups = new Map(); // pk -> [groupKey, ...]
+  const parents = new Map();      // pk -> { model, variant, records: [] }
+  groups.forEach((g, gk) => {
+    const pk = g.model + '\u241F' + g.variant;
+    if (!parentGroups.has(pk)) parentGroups.set(pk, []);
+    parentGroups.get(pk).push(gk);
+    if (!parents.has(pk)) parents.set(pk, { model:g.model, variant:g.variant, records:[] });
+    parents.get(pk).records.push(...g.records);
+  });
 
+  const forecastCount = forecastMonths.length;
+  const parentDemand = new Map(); // pk -> total forecasted registrations over the window
+  parents.forEach((p, pk) => {
+    const s = buildStageSeries(p.records, actualMonths);
+    const regF = forecastFlow(s.registration, forecastCount, method);
+    parentDemand.set(pk, regF.reduce((a,b)=>a+b,0));
+  });
+
+  // Historical registration count per combo (share basis) and per parent (total).
+  const comboRegTotal = new Map();
+  const parentRegTotal = new Map();
+  groups.forEach((g, gk) => {
+    const total = countInMonthsSum(g.records, 'registrationDate', actualMonths);
+    comboRegTotal.set(gk, total);
+    const pk = g.model + '\u241F' + g.variant;
+    parentRegTotal.set(pk, (parentRegTotal.get(pk) || 0) + total);
+  });
+
+  // Split each parent's forecasted demand across its combos, using largest-
+  // remainder rounding so the combo figures always sum back to the parent total.
+  const comboDemand = new Map();
+  parentGroups.forEach((gks, pk) => {
+    const pDemand = parentDemand.get(pk) || 0;
+    const pRegTotal = parentRegTotal.get(pk) || 0;
+    const raw = gks.map(gk => {
+      const comboReg = comboRegTotal.get(gk) || 0;
+      // No registration history anywhere in this parent yet (e.g. a brand new
+      // launch) — split evenly across its combos instead of zeroing everyone.
+      const share = pRegTotal > 0 ? comboReg / pRegTotal : (gks.length ? 1/gks.length : 0);
+      return pDemand * share;
+    });
+    const floors = raw.map(Math.floor);
+    const used = floors.reduce((a,b)=>a+b,0);
+    const remainder = pDemand - used;
+    const order = raw.map((v,i)=>({i, frac: v - floors[i]})).sort((a,b)=>b.frac-a.frac);
+    const finalVals = floors.slice();
+    for (let k=0;k<remainder && k<order.length;k++) finalVals[order[k].i] += 1;
+    gks.forEach((gk,i) => comboDemand.set(gk, finalVals[i]));
+  });
+
+  const rows = [];
+  groups.forEach((g, gk) => {
     const currentStock = currentStockFor(g.records, todayKey);
     const scheduledProd = scheduledIncomingFor(g.records, forecastMonths);
     const scheduledPO = poScheduledFor(PO_RECORDS, g, forecastMonths);
     const scheduled = scheduledProd + scheduledPO;
-    const demand = regF.reduce((a,b)=>a+b,0);
+    const demand = comboDemand.get(gk) || 0;
     const net = currentStock + scheduled - demand;
 
     rows.push({
