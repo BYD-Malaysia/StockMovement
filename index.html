@@ -197,7 +197,7 @@
   </div>
 
   <div class="breakdown-head">
-    <h2>Should we purchase more?</h2>
+    <h2>Should we purchase more?</h2>	
   </div>
   <div class="table-shell">
     <table id="breakdown"></table>
@@ -526,9 +526,9 @@ function renderMTD(records, todayKey, sel){
   const prodSub =''	
 
   els.mtd.innerHTML =
-    mtdCard('Production (' + monthLabel(todayKey) + ', so far)', production, false, prodSub) +
-    mtdCard('Wholesale / PI (' + monthLabel(todayKey) + ', so far)', wholesale) +
-    mtdCard('Registration (' + monthLabel(todayKey) + ', so far)', registration) +
+    mtdCard('Production', production, false, prodSub) +
+    mtdCard('Wholesale', wholesale) +
+    mtdCard('Registered', registration) +
     mtdCard('RDC Stock On Hand', stock.rdc) +
     mtdCard('Dealer Stock On Hand', stock.dealer);
 }
