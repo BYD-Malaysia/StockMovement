@@ -21,6 +21,18 @@
     --danger:#e2596b;
     --radius:10px;
   }
+  body[data-theme="light"]{
+    --bg:#e9edf2;
+    --panel:#ffffff;
+    --panel-2:#f2f5f8;
+    --line:#cfd7e0;
+    --text:#151a21;
+    --muted:#525c68;
+    --accent:#0c8f81;
+    --accent-dim:#0a6f64;
+    --forecast:#a8660b;
+    --danger:#b23349;
+  }
   *{box-sizing:border-box;}
   body{
     margin:0;
@@ -30,7 +42,14 @@
     color:var(--text);
     font-family:'Inter',system-ui,sans-serif;
     -webkit-font-smoothing:antialiased;
+    transition:background-color .15s ease, color .15s ease;
   }
+  .theme-toggle{
+    background:var(--panel);border:1px solid var(--line);color:var(--text);
+    border-radius:999px;padding:8px 14px;font-size:12.5px;cursor:pointer;
+    font-family:'Inter',sans-serif;white-space:nowrap;
+  }
+  .theme-toggle:hover{border-color:var(--accent);color:var(--accent);}
   .wrap{max-width:1400px;margin:0 auto;padding:28px 24px 60px;}
 
   /* ---------- Header ---------- */
@@ -110,7 +129,7 @@
   /* ---------- Table ---------- */
   .table-shell{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);overflow:auto;}
   table{border-collapse:collapse;width:100%;min-width:820px;}
-  th,td{padding:10px 14px;text-align:right;font-family:'IBM Plex Mono',monospace;font-size:13px;white-space:nowrap;}
+  th,td{padding:10px 14px;text-align:center;font-family:'IBM Plex Mono',monospace;font-size:13px;white-space:nowrap;}
   th:first-child,td:first-child{text-align:left;font-family:'Inter',sans-serif;font-weight:500;}
   thead th{
     position:sticky;top:0;background:var(--panel-2);color:var(--muted);
@@ -121,6 +140,7 @@
   tbody th{position:sticky;left:0;background:var(--panel);z-index:1;border-right:1px solid var(--line);}
   tbody tr{border-bottom:1px solid var(--line);}
   tbody tr:last-child{border-bottom:none;}
+  tfoot td{font-weight:700;border-top:1px solid var(--accent-dim);background:var(--panel-2);color:var(--text);}
   td.forecast-cell, th.forecast-col{color:var(--forecast);background:rgba(245,166,35,0.06);}
   .stage-name{display:flex;align-items:center;gap:8px;}
   .stage-tag{
@@ -154,13 +174,16 @@
 
   <header>
     <div class="title-block">
-      <h1>Stock Movement Tracker</h1>
+      <h1>DENZA Stock Movement Tracker</h1>
       <p>Production → Wholesale → Registration → RDC → Dealer</p>
     </div>
-    <div class="status" id="statusPill">
-      <span class="dot" id="statusDot"></span>
-      <span id="statusText">Connecting…</span>
-      <button id="refreshBtn" type="button">Refresh</button>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <button id="themeToggle" type="button" class="theme-toggle" title="Switch theme">🌙 Dark</button>
+      <div class="status" id="statusPill">
+        <span class="dot" id="statusDot"></span>
+        <span id="statusText">Connecting…</span>
+        <button id="refreshBtn" type="button">Refresh</button>
+      </div>
     </div>
   </header>
 
@@ -189,7 +212,7 @@
         <option value="avg6">6-month average</option>
         <option value="trend">Linear trend</option>
       </select>
-      for Wholesale &amp; Registration.
+      for Wholesale &amp; Registration. Production isn't statistically forecasted — it's booked Production Dates + submitted PO qty only.
     </span>
   </div>
 
@@ -198,10 +221,22 @@
   </div>
 
   <div class="breakdown-head">
-    <h2>Should we purchase more?</h2>	
+    <h2>Should we purchase more?</h2>
   </div>
   <div class="table-shell">
     <table id="breakdown"></table>
+  </div>
+
+  <div class="breakdown-head">
+    <h2>Dealer performance</h2>
+  </div>
+  <div class="forecast-bar">
+    <span><strong>Month:</strong>
+      <select id="dealerMonth"></select>
+    </span>
+  </div>
+  <div class="table-shell">
+    <table id="dealerPerf"></table>
   </div>
 
   <footer id="footerNote">—</footer>
@@ -218,6 +253,7 @@ let RECORDS = [];
 let PO_RECORDS = [];
 let FILTERED = [];
 let breakdownSort = { key: 'net', dir: 'asc' };
+let dealerPerfSort = { key: 'holding', dir: 'desc' };
 
 const els = {
   dealer: document.getElementById('f-dealer'),
@@ -228,11 +264,14 @@ const els = {
   statusDot: document.getElementById('statusDot'),
   statusText: document.getElementById('statusText'),
   refreshBtn: document.getElementById('refreshBtn'),
+  themeToggle: document.getElementById('themeToggle'),
   resetBtn: document.getElementById('resetBtn'),
   summary: document.getElementById('summaryCards'),
   mtd: document.getElementById('mtdCards'),
   table: document.getElementById('matrix'),
   breakdown: document.getElementById('breakdown'),
+  dealerPerf: document.getElementById('dealerPerf'),
+  dealerMonth: document.getElementById('dealerMonth'),
   footer: document.getElementById('footerNote'),
   fMonths: document.getElementById('fMonths'),
   fMethod: document.getElementById('fMethod'),
@@ -241,6 +280,8 @@ const els = {
 init();
 
 async function init(){
+  applyTheme(loadTheme());
+  els.themeToggle.addEventListener('click', toggleTheme);
   els.refreshBtn.addEventListener('click', () => loadData(true));
   els.resetBtn.addEventListener('click', resetFilters);
   [els.dealer, els.model, els.variant, els.ext, els.int].forEach(sel => {
@@ -254,6 +295,15 @@ async function init(){
     const key = th.dataset.key;
     if (breakdownSort.key === key) breakdownSort.dir = breakdownSort.dir === 'desc' ? 'asc' : 'desc';
     else breakdownSort = { key, dir: 'desc' };
+    render();
+  });
+  els.dealerMonth.addEventListener('change', render);
+  els.dealerPerf.addEventListener('click', (e) => {
+    const th = e.target.closest('th.sortable');
+    if (!th) return;
+    const key = th.dataset.key;
+    if (dealerPerfSort.key === key) dealerPerfSort.dir = dealerPerfSort.dir === 'desc' ? 'asc' : 'desc';
+    else dealerPerfSort = { key, dir: 'desc' };
     render();
   });
 
@@ -323,6 +373,23 @@ function uniqueSorted(arr){ return Array.from(new Set(arr.filter(v=>v))).sort((a
 
 function buildFilterOptions(){
   rebuildFilterOptions();
+  populateDealerMonthOptions();
+}
+
+function populateDealerMonthOptions(){
+  const rawMonths = getMonthRange(RECORDS);
+  const todayKey = currentMonthKey();
+  const months = rawMonths.includes(todayKey) ? rawMonths : rawMonths.concat([todayKey]);
+  const prev = els.dealerMonth.value;
+  els.dealerMonth.innerHTML =
+    '<option value="ALL">All months (total)</option>' +
+    months.map(m => '<option value="'+m+'">'+monthLabel(m)+(m===todayKey?' (in progress)':'')+'</option>').join('');
+  if (prev && (prev === 'ALL' || months.includes(prev))) els.dealerMonth.value = prev;
+  else {
+    // Default to the most recently completed month, if one exists.
+    const lastCompleted = rawMonths.filter(m => m < todayKey).slice(-1)[0];
+    els.dealerMonth.value = lastCompleted || todayKey;
+  }
 }
 
 // Cascading dropdowns: each select's option list only reflects records
@@ -496,6 +563,7 @@ function render(){
   renderTable(actualMonths, forecastMonths, series, {production:prodF, wholesale:wsF, registration:regF, rdc:rdcF, dealer:dealerF});
   renderFooter(actualMonths, forecastMonths);
   renderBreakdown(actualMonths, forecastMonths, method, todayKey);
+  renderDealerPerf(sel);
 }
 
 function renderSummary(series, months){
@@ -782,6 +850,107 @@ function renderBreakdown(actualMonths, forecastMonths, method, todayKey){
   tbody += '</tbody>';
 
   els.breakdown.innerHTML = thead + tbody;
+}
+
+/* ---------------- Dealer performance ---------------- */
+
+function renderDealerPerf(sel){
+  // Ignore the Dealer filter specifically, so every dealer shows side by
+  // side, while still respecting Model/Variant/Ext/Int.
+  const scope = RECORDS.filter(r => matches(r, sel, 'dealer'));
+  if (!scope.length){
+    els.dealerPerf.innerHTML = '';
+    els.dealerPerf.parentElement.innerHTML = '<div class="empty-note">No units match the current filters.</div>';
+    return;
+  }
+
+  const monthSel = els.dealerMonth.value || 'ALL';
+  const todayKey = currentMonthKey();
+  const allMonths = getMonthRange(scope).filter(m => m <= todayKey);
+  const monthsForAll = allMonths.length ? allMonths : [todayKey];
+
+  const byDealer = new Map();
+  scope.forEach(r => {
+    const name = r.dealer || '(No dealer)';
+    if (!byDealer.has(name)) byDealer.set(name, []);
+    byDealer.get(name).push(r);
+  });
+
+  const rows = [];
+  byDealer.forEach((records, dealer) => {
+    let wholesale, registration, holding;
+    if (monthSel === 'ALL'){
+      wholesale = countInMonthsSum(records, 'wholesaleDate', monthsForAll);
+      registration = countInMonthsSum(records, 'registrationDate', monthsForAll);
+      holding = currentStockSplitFor(records, todayKey).dealer;
+    } else {
+      wholesale = countInMonth(records, 'wholesaleDate', monthSel);
+      registration = countInMonth(records, 'registrationDate', monthSel);
+      const raw = countByOrBefore(records,'wholesaleDate', monthSel) - countByOrBefore(records,'registrationDate', monthSel);
+      holding = Math.max(0, raw);
+    }
+    rows.push({ dealer, units: records.length, wholesale, registration, holding });
+  });
+
+  const dir = dealerPerfSort.dir === 'asc' ? 1 : -1;
+  const key = dealerPerfSort.key;
+  rows.sort((a,b) => {
+    const av = a[key], bv = b[key];
+    if (typeof av === 'string') return av.localeCompare(bv) * dir;
+    return (av - bv) * dir;
+  });
+
+  const cols = [
+    {key:'dealer', label:'Dealer'},
+    {key:'wholesale', label:'Wholesale'},
+    {key:'registration', label:'Registration'},
+    {key:'holding', label:'Holding Stock'},
+  ];
+  const numericKeys = ['wholesale','registration','holding'];
+
+  let thead = '<thead><tr>';
+  cols.forEach(c => {
+    const active = c.key === dealerPerfSort.key;
+    thead += '<th class="sortable'+(active?' sort-active':'')+'" data-key="'+c.key+'">'+c.label+(active?(dir===1?' \u2191':' \u2193'):'')+'</th>';
+  });
+  thead += '</tr></thead>';
+
+  let tbody = '<tbody>';
+  rows.forEach(r => {
+    tbody += '<tr>';
+    cols.forEach(c => {
+      const isNum = numericKeys.includes(c.key);
+      tbody += '<td'+(isNum?'':' style="text-align:left;font-family:\'Inter\',sans-serif;"')+'>'+escHtml(String(r[c.key]))+'</td>';
+    });
+    tbody += '</tr>';
+  });
+  tbody += '</tbody>';
+
+  const totals = rows.reduce((acc,r) => {
+    acc.wholesale += r.wholesale; acc.registration += r.registration; acc.holding += r.holding;
+    return acc;
+  }, {wholesale:0, registration:0, holding:0});
+  const tfoot = '<tfoot><tr>' +
+    '<td style="text-align:left;font-family:\'Inter\',sans-serif;">Total (' + rows.length + ' dealer' + (rows.length===1?'':'s') + ')</td>' +
+    '<td>' + totals.wholesale + '</td>' +
+    '<td>' + totals.registration + '</td>' +
+    '<td>' + totals.holding + '</td>' +
+    '</tr></tfoot>';
+
+  els.dealerPerf.innerHTML = thead + tbody + tfoot;
+}
+
+function loadTheme(){
+  try{ return localStorage.getItem('stockTrackerTheme') || 'dark'; }catch(e){ return 'dark'; }
+}
+function applyTheme(theme){
+  document.body.dataset.theme = theme === 'light' ? 'light' : 'dark';
+  els.themeToggle.textContent = theme === 'light' ? '☀️ Light' : '🌙 Dark';
+  try{ localStorage.setItem('stockTrackerTheme', theme); }catch(e){}
+}
+function toggleTheme(){
+  const current = document.body.dataset.theme === 'light' ? 'light' : 'dark';
+  applyTheme(current === 'light' ? 'dark' : 'light');
 }
 
 function escHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
