@@ -576,7 +576,7 @@ function renderSummary(series, months){
     {lbl:'Dealer stock on hand', val: series.dealerBalance[lastIdx] ?? 0},
   ];
   els.summary.innerHTML = cards.map(c =>
-    '<div class="card'+(c.dim?' dim':'')+'"><div class="lbl">'+c.lbl+'</div><div class="val">'+c.val+'</div></div>'
+    '<div class="card'+(c.dim?' dim':'')+'"><div class="lbl">'+c.lbl+'</div><div class="val">'+fmt(c.val)+'</div></div>'
   ).join('');
 }
 
@@ -603,7 +603,7 @@ function renderMTD(records, todayKey, sel){
 }
 
 function mtdCard(lbl, val, dim, sub){
-  return '<div class="card'+(dim?' dim':'')+'"><div class="lbl">'+lbl+'</div><div class="val">'+val+'</div>' +
+  return '<div class="card'+(dim?' dim':'')+'"><div class="lbl">'+lbl+'</div><div class="val">'+fmt(val)+'</div>' +
     (sub ? '<div style="font-size:11px;color:var(--muted);margin-top:4px;">'+sub+'</div>' : '') +
     '</div>';
 }
@@ -633,9 +633,9 @@ function renderTable(months, forecastMonths, series, fseries){
 
   let tbody = '<tbody>';
   rows.forEach(row => {
-    tbody += '<tr><th><span class="stage-name">'+row.name+'<span class="stage-tag '+row.tag+'">'+(row.tag==='flow'?'flow/mo':'balance')+'</span></span></th>';
-    row.actual.forEach(v => { tbody += '<td>'+v+'</td>'; });
-    row.forecast.forEach(v => { tbody += '<td class="forecast-cell">'+v+'</td>'; });
+    tbody += '<tr><th><span class="stage-name">'+row.name+'</span></th>';
+    row.actual.forEach(v => { tbody += '<td>'+fmt(v)+'</td>'; });
+    row.forecast.forEach(v => { tbody += '<td class="forecast-cell">'+fmt(v)+'</td>'; });
     tbody += '</tr>';
   });
   tbody += '</tbody>';
@@ -645,7 +645,7 @@ function renderTable(months, forecastMonths, series, fseries){
 
 function renderFooter(months, forecastMonths){
   const parts = [];
-  parts.push(FILTERED.length + ' unit(s) match current filters out of ' + RECORDS.length + ' total.');
+  parts.push(fmt(FILTERED.length) + ' unit(s) match current filters out of ' + fmt(RECORDS.length) + ' total.');
   parts.push('');
   if (forecastMonths.length) parts.push('');
   els.footer.textContent = parts.join(' ');
@@ -838,11 +838,12 @@ function renderBreakdown(actualMonths, forecastMonths, method, todayKey){
       const isNum = numericKeys.includes(c.key);
       const netCell = c.key === 'net';
       const cls = netCell ? (r.net < 0 ? 'num-strong' : '') : '';
-      tbody += '<td'+(isNum?'':' style="text-align:left;font-family:\'Inter\',sans-serif;"')+(cls?' class="'+cls+'"':'')+'>'+escHtml(String(r[c.key]))+'</td>';
+      const display = isNum ? fmt(r[c.key]) : escHtml(String(r[c.key]));
+      tbody += '<td'+(isNum?'':' style="text-align:left;font-family:\'Inter\',sans-serif;"')+(cls?' class="'+cls+'"':'')+'>'+display+'</td>';
     });
     const short = r.net < 0;
     const signal = short
-      ? '<span style="color:var(--danger);font-weight:600;">Order '+Math.abs(r.net)+' more</span>'
+      ? '<span style="color:var(--danger);font-weight:600;">Order '+fmt(Math.abs(r.net))+' more</span>'
       : '<span style="color:var(--accent);">Sufficient</span>';
     tbody += '<td style="text-align:left;font-family:\'Inter\',sans-serif;">'+signal+'</td>';
     tbody += '</tr>';
@@ -920,7 +921,8 @@ function renderDealerPerf(sel){
     tbody += '<tr>';
     cols.forEach(c => {
       const isNum = numericKeys.includes(c.key);
-      tbody += '<td'+(isNum?'':' style="text-align:left;font-family:\'Inter\',sans-serif;"')+'>'+escHtml(String(r[c.key]))+'</td>';
+      const display = isNum ? fmt(r[c.key]) : escHtml(String(r[c.key]));
+      tbody += '<td'+(isNum?'':' style="text-align:left;font-family:\'Inter\',sans-serif;"')+'>'+display+'</td>';
     });
     tbody += '</tr>';
   });
@@ -932,9 +934,9 @@ function renderDealerPerf(sel){
   }, {wholesale:0, registration:0, holding:0});
   const tfoot = '<tfoot><tr>' +
     '<td style="text-align:left;font-family:\'Inter\',sans-serif;">Total (' + rows.length + ' dealer' + (rows.length===1?'':'s') + ')</td>' +
-    '<td>' + totals.wholesale + '</td>' +
-    '<td>' + totals.registration + '</td>' +
-    '<td>' + totals.holding + '</td>' +
+    '<td>' + fmt(totals.wholesale) + '</td>' +
+    '<td>' + fmt(totals.registration) + '</td>' +
+    '<td>' + fmt(totals.holding) + '</td>' +
     '</tr></tfoot>';
 
   els.dealerPerf.innerHTML = thead + tbody + tfoot;
@@ -951,6 +953,13 @@ function applyTheme(theme){
 function toggleTheme(){
   const current = document.body.dataset.theme === 'light' ? 'light' : 'dark';
   applyTheme(current === 'light' ? 'dark' : 'light');
+}
+
+function fmt(n){
+  if (typeof n !== 'number' || !isFinite(n)) return String(n);
+  const neg = n < 0;
+  const s = Math.abs(Math.round(n)).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return (neg?'-':'') + s;
 }
 
 function escHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
